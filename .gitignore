@@ -1,0 +1,18 @@
+# Ignore system and IDE files
+.idea/
+__pycache__/
+
+# Ignore large data and models
+*.pth
+*.caffemodel
+*.prototxt
+*.csv
+
+# Ignore folders with raw or processed data
+Bootcamp/
+CNN_Data/
+Images/
+Processed_Frames/
+Processed_Images/
+Video Fights for Learning/
+Fork of Human Detection/
