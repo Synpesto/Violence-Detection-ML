@@ -34,19 +34,18 @@ def get_transforms(img_size: int = 224):
 
 # ---------------- Model ----------------
 class FightDetectionCNN(nn.Module):
-    def __init__(self, num_classes=2, pretrained=True, device='cpu'):
+    def __init__(self, num_classes=2, pretrained=True):
         super().__init__()
         weights = models.ResNet50_Weights.DEFAULT if pretrained else None
         self.backbone = models.resnet50(weights=weights)
-        in_f = self.backbone.fc.in_features
+        in_features = self.backbone.fc.in_features
         self.backbone.fc = nn.Sequential(
             nn.Dropout(0.5),
-            nn.Linear(in_f, 512),
-            nn.ReLU(inplace=True),
+            nn.Linear(in_features, 512),
+            nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(512, num_classes)
+            nn.Linear(512, num_classes),
         )
-        self.to(device)
 
     def freeze_backbone(self):
         for p in self.backbone.parameters(): p.requires_grad = False
@@ -57,6 +56,14 @@ class FightDetectionCNN(nn.Module):
 
     def forward(self, x):
         return self.backbone(x)
+
+def load_cnn_model(weights_path, device="cpu"):
+    model = FightDetectionCNN(num_classes=2, pretrained=False)
+    state = torch.load(weights_path, map_location=device)
+    model.load_state_dict(state, strict=False)
+    model.to(device)
+    model.eval()
+    return model
 
 # ---------------- Training utilities ----------------
 def train_epoch(model: nn.Module, loader: DataLoader, criterion, optimizer, device):
