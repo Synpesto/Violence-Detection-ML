@@ -30,9 +30,15 @@ def evaluate_model(args):
         return
 
     # 2. Setup Data (Use Test set)
-    test_dir = os.path.join(args.data_dir, 'test')
+    if os.path.exists(os.path.join(args.data_dir, 'test')):
+        test_dir = os.path.join(args.data_dir, 'test')
+    else:
+        test_dir = args.data_dir
+
+    print(f"[INFO] Data source: {test_dir}")
+
     if not os.path.exists(test_dir):
-        print(f"[ERROR] Test folder not found: {test_dir}")
+        print(f"[ERROR] Folder not found: {test_dir}")
         return
 
     _, val_tf = get_transforms(img_size=img_size)

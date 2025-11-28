@@ -18,9 +18,15 @@ def evaluate_resnet(args):
     print(f"[INFO] Device: {device}")
 
     # 1. Setup Data (Test Set)
-    test_dir = os.path.join(args.data_dir, 'test')
+    if os.path.exists(os.path.join(args.data_dir, 'test')):
+        test_dir = os.path.join(args.data_dir, 'test')
+    else:
+        test_dir = args.data_dir
+
+    print(f"[INFO] Evaluating on: {test_dir}")
+
     if not os.path.exists(test_dir):
-        print(f"[ERROR] Test folder not found: {test_dir}")
+        print(f"[ERROR] Folder not found: {test_dir}")
         return
 
     # ResNet uses 224x224
