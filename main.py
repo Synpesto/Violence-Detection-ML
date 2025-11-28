@@ -71,20 +71,9 @@ def example_frequency_analysis():
     plot_distribution(df, metric="mean")
     plot_distribution(df, metric="variance")
 
-def example_train_ml():
-    print("\nBuilding feature table...")
-    df = build_stats_dataframe(FREQ_DIR)
-
-    print("\nTraining ML models...")
-    results = train_classic_ml_models(df)
-
-    print("\nFinal Results:")
-    for model, metrics in results.items():
-        print(f"{model}: {metrics}")
 
 if __name__ == "__main__":
     print("Example runs (edit paths in main.py before running).")
     # example_yolo_run()
     # example_cnn_predict()
     # example_frequency_analysis()
-    example_train_ml()

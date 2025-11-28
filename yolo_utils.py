@@ -72,7 +72,7 @@ def detect_fight_with_yolo(image_path: str, model, *,
                            overlap_threshold: float = 0.3,
                            horizontal_threshold: float = 0.6,
                            vertical_threshold: float = 0.7,
-                           distance_threshold: float = 75,
+                           distance_threshold: float = 0.10,
                            expand_ratio: float = 0.05,
                            min_box_area: int = 1000) -> Tuple[bool, Dict[str,Any]]:
     """
