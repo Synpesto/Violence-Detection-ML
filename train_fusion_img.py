@@ -15,22 +15,28 @@ from tqdm import tqdm
 from sklearn.metrics import classification_report, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+from data_utils import split_frequency_dataset
 
-
-# --- 1. DATASET ---
 class DualImageDataset(Dataset):
-    def __init__(self, root_dir, transform=None, spec_size=(128, 128)):
-        self.dataset = ImageFolder(root_dir)
+    def __init__(self, spatial_dir, freq_dir, transform=None, spec_size=(128, 128)):
+        self.spatial_dataset = ImageFolder(spatial_dir)
+        self.freq_dataset = ImageFolder(freq_dir)
         self.transform = transform
         self.spec_h = spec_size[0]
         self.spec_w = spec_size[1]
 
+        assert len(self.spatial_dataset) == len(self.freq_dataset), \
+            "Spatial and frequency datasets must have same number of samples"
+        assert self.spatial_dataset.classes == self.freq_dataset.classes, \
+            "Class names must match between spatial and frequency datasets"
+
     def __len__(self):
-        return len(self.dataset)
+        return len(self.spatial_dataset)
 
     def compute_spectrogram(self, img_path):
         img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        if img is None: return np.zeros((self.spec_h, self.spec_w), dtype=np.float32)
+        if img is None:
+            return np.zeros((self.spec_h, self.spec_w), dtype=np.float32)
 
         # Resize to (Time, Freq) dimensions
         img_resized = cv2.resize(img, (self.spec_w, self.spec_h))
@@ -39,23 +45,23 @@ class DualImageDataset(Dataset):
         return spec
 
     def __getitem__(self, idx):
-        path, label = self.dataset.samples[idx]
+        spatial_path, spatial_label = self.spatial_dataset.samples[idx]
+        freq_path, freq_label = self.freq_dataset.samples[idx]
 
         # Spatial
-        img_pil = Image.open(path).convert('RGB')
+        img_pil = Image.open(spatial_path).convert('RGB')
         if self.transform:
             spatial_tensor = self.transform(img_pil)
         else:
             spatial_tensor = transforms.ToTensor()(img_pil)
 
         # Frequency
-        spec_matrix = self.compute_spectrogram(path)
+        spec_matrix = self.compute_spectrogram(freq_path)
         spec_tensor = torch.tensor(spec_matrix.T, dtype=torch.float32)
 
-        return spatial_tensor, spec_tensor, label
+        return spatial_tensor, spec_tensor, spatial_label
 
 
-# --- 2. MODEL ---
 class FusionModel(nn.Module):
     def __init__(self, num_classes, model_type='lstm', spec_input_dim=128, hidden_dim=128):
         super(FusionModel, self).__init__()
@@ -64,7 +70,8 @@ class FusionModel(nn.Module):
         # Spatial Branch (ResNet)
         resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         self.cnn_backbone = nn.Sequential(*list(resnet.children())[:-1])
-        for param in self.cnn_backbone.parameters(): param.requires_grad = False
+        for param in self.cnn_backbone.parameters():
+            param.requires_grad = False
         self.cnn_out_dim = 2048
 
         # Frequency Branch
@@ -77,7 +84,7 @@ class FusionModel(nn.Module):
             self.seq_model = nn.TransformerEncoder(layer, num_layers=2)
             hidden_dim = spec_input_dim
 
-            # Fusion
+        # Fusion
         self.classifier = nn.Sequential(
             nn.Linear(self.cnn_out_dim + hidden_dim, 256),
             nn.ReLU(),
@@ -98,14 +105,26 @@ class FusionModel(nn.Module):
         return self.classifier(torch.cat((c_out, s_out), dim=1))
 
 
-# --- 3. MAIN (TRAIN + EVALUATE) ---
 def main(args):
     device = torch.device(args.device)
     print(f"[INFO] Mode: {args.model.upper()} | Device: {device}")
 
-    # Setup
-    train_dir = os.path.join(args.data, 'train')
-    val_dir = os.path.join(args.data, 'val')
+    # Check if frequency data needs splitting
+    freq_train_dir = os.path.join(args.freq_data, 'train')
+    if not os.path.exists(freq_train_dir):
+        print("[INFO] Frequency dataset not split. Performing split...")
+        split_frequency_dataset(
+            source_dir="./Frequency_Spectrums",
+            output_dir="./Frequency_Spectrum_Data",
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15
+        )
+
+    spatial_train_dir = os.path.join(args.spatial_data, 'train')
+    spatial_val_dir = os.path.join(args.spatial_data, 'val')
+    freq_train_dir = os.path.join(args.freq_data, 'train')
+    freq_val_dir = os.path.join(args.freq_data, 'val')
 
     spatial_tf = transforms.Compose([
         transforms.Resize((224, 224)),
@@ -113,9 +132,9 @@ def main(args):
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
     ])
 
-    train_ds = DualImageDataset(train_dir, transform=spatial_tf)
-    val_ds = DualImageDataset(val_dir, transform=spatial_tf)
-    classes = train_ds.dataset.classes
+    train_ds = DualImageDataset(spatial_train_dir, freq_train_dir, transform=spatial_tf)
+    val_ds = DualImageDataset(spatial_val_dir, freq_val_dir, transform=spatial_tf)
+    classes = train_ds.spatial_dataset.classes
 
     train_loader = DataLoader(train_ds, batch_size=args.batch, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=args.batch, shuffle=False, num_workers=0)
@@ -127,7 +146,6 @@ def main(args):
     best_acc = 0.0
     best_weights_path = f"best_fusion_{args.model}.pth"
 
-    # --- TRAINING LOOP ---
     print("\n=== START TRAINING ===")
     for epoch in range(args.epochs):
         model.train()
@@ -168,10 +186,8 @@ def main(args):
             best_acc = val_acc
             torch.save(model.state_dict(), best_weights_path)
 
-    # --- EVALUATION (AUTO RUN AFTER TRAIN) ---
     print(f"\n=== FINAL EVALUATION (Best Model: {best_acc:.4f}) ===")
 
-    # Load Best Weights
     model.load_state_dict(torch.load(best_weights_path))
     model.eval()
 
@@ -188,10 +204,8 @@ def main(args):
             y_true.extend(label.cpu().numpy())
             y_pred.extend(pred.cpu().numpy())
 
-    # 1. Classification Report
     print("\n" + classification_report(y_true, y_pred, target_names=classes))
 
-    # 2. Confusion Matrix
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=classes, yticklabels=classes)
@@ -202,12 +216,12 @@ def main(args):
     save_img = f"confusion_matrix_fusion_{args.model}.png"
     plt.savefig(save_img)
     print(f"[SUCCESS] Matrix saved to {save_img}")
-    # plt.show()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=str, default="./CNN_Data")
+    parser.add_argument("--spatial_data", type=str, default="./CNN_Data")
+    parser.add_argument("--freq_data", type=str, default="./Frequency_Spectrum_Data")
     parser.add_argument("--model", type=str, default="lstm", choices=['lstm', 'gru', 'transformer'])
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch", type=int, default=32)

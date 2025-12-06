@@ -4,6 +4,7 @@ Dataset utilities:
  - prepare_cnn_data: split images into train/val/test folders
  - extract_frames_from_videos: (simple) extract 1 frame/second and save with index names
  - build_feature_table: compute spatial + frequency features and save CSV
+ - split_frequency_dataset: split frequency spectrum dataset into train/val/test
 """
 import os, shutil, random
 from pathlib import Path
@@ -43,6 +44,55 @@ def prepare_cnn_data(source_dir: str, target_dir: str,
             shutil.copy2(os.path.join(source_dir,c,f), os.path.join(target_dir,'test',c,f))
         report.append({'class':c,'total':total,'train':len(train),'val':len(val),'test':len(test)})
     return report
+
+def split_frequency_dataset(source_dir, output_dir, train_ratio=0.7, val_ratio=0.15, test_ratio=0.15):
+    """
+    Split frequency spectrum dataset into train/val/test sets
+
+    Args:
+        source_dir: Path to Frequency_Spectrums folder with class subfolders
+        output_dir: Path to output folder (will create train/val/test structure)
+        train_ratio: Ratio for training set
+        val_ratio: Ratio for validation set
+        test_ratio: Ratio for test set
+    """
+    import random
+    import shutil
+    from pathlib import Path
+
+    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-5, "Ratios must sum to 1.0"
+
+    source_path = Path(source_dir)
+    output_path = Path(output_dir)
+
+    class_folders = [d for d in source_path.iterdir() if d.is_dir()]
+
+    for class_folder in class_folders:
+        class_name = class_folder.name
+        print(f"[INFO] Processing class: {class_name}")
+
+        images = list(class_folder.glob("*.*"))
+        random.shuffle(images)
+
+        total = len(images)
+        train_end = int(total * train_ratio)
+        val_end = train_end + int(total * val_ratio)
+
+        train_imgs = images[:train_end]
+        val_imgs = images[train_end:val_end]
+        test_imgs = images[val_end:]
+
+        for split_name, split_imgs in [('train', train_imgs), ('val', val_imgs), ('test', test_imgs)]:
+            split_dir = output_path / split_name / class_name
+            split_dir.mkdir(parents=True, exist_ok=True)
+
+            for img_path in split_imgs:
+                shutil.copy2(img_path, split_dir / img_path.name)
+
+        print(f"   >> Train: {len(train_imgs)} | Val: {len(val_imgs)} | Test: {len(test_imgs)}")
+
+    print(f"[SUCCESS] Dataset split completed at {output_path}")
+
 
 def extract_frames_from_videos(video_path: str, out_dir: str, per_second: int = 1):
     """
